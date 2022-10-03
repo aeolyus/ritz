@@ -1,4 +1,5 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
+use git2::Repository;
 
 #[tokio::main]
 async fn main() {
@@ -21,14 +22,18 @@ async fn root() -> Html<String> {
     result.push(header().to_string());
     result.push("<span>Repositories</span>".to_string());
     result.push("<hr/>".to_string());
-    let paths = std::fs::read_dir("./")
+    let mut paths = std::fs::read_dir("./")
         .unwrap()
-        .map(|entry| entry.as_ref().unwrap().path())
-        .filter(|path| path.is_dir());
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| Repository::open(path).is_ok())
+        .map(|path| path.into_os_string().into_string().unwrap())
+        .collect::<Vec<String>>();
+    paths.sort();
     result.push("<table>".to_string());
     result.push("<thead><tr><td><b>Name</b></td></tr></thread>".to_string());
     for path in paths {
-        let repo = path.into_os_string().into_string().unwrap();
+        let repo = basename(&path, '/');
         result.push("<tr><td>".to_string());
         result.push(format!("<a href=/{}>{}</a>", repo, repo));
         result.push("</td></td>".to_string());
@@ -101,4 +106,11 @@ fn header() -> &'static str {
 
 fn footer() -> &'static str {
     "</body></html>"
+}
+fn basename(path: &str, sep: char) -> &str {
+    let mut pieces = path.rsplit(sep);
+    match pieces.next() {
+        Some(p) => p.into(),
+        None => path.into(),
+    }
 }
