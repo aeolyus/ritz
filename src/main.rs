@@ -1,8 +1,29 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
 use git2::Repository;
+use std::env;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+
+const STD_PORT: u16 = 3000;
+
+struct Config {
+    dir: String,
+    port: u16,
+}
+
+impl Config {
+    fn load() -> Self {
+        let dir = env::var("RITZ_DIR").unwrap_or("./".to_string());
+        let port = env::var("RITZ_PORT")
+            .unwrap_or(STD_PORT.to_string())
+            .parse::<u16>()
+            .unwrap();
+        Config { dir, port }
+    }
+}
 
 #[tokio::main]
 async fn main() {
+    let config: Config = Config::load();
     let app = Router::new()
         .route("/", get(root))
         .route("/:repo", get(repo))
@@ -11,18 +32,20 @@ async fn main() {
         .route("/:repo/refs", get(refs))
         .route("/:repo/tree/*path", get(tree));
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    let sock_addr = SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), config.port));
+    axum::Server::bind(&sock_addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
 }
 
 async fn root() -> Html<String> {
+    let config: Config = Config::load();
     let mut result: Vec<String> = Vec::new();
     result.push(header().to_string());
     result.push("<span>Repositories</span>".to_string());
     result.push("<hr/>".to_string());
-    let mut paths = std::fs::read_dir("./")
+    let mut paths = std::fs::read_dir(config.dir)
         .unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
