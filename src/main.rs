@@ -1,4 +1,5 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Repository;
 use std::env;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -26,7 +27,7 @@ async fn main() {
     let config: Config = Config::load();
     let app = Router::new()
         .route("/", get(root))
-        .route("/:repo", get(repo))
+        .route("/:repo", get(log))
         .route("/:repo/commit/:hash", get(commit))
         .route("/:repo/log", get(log))
         .route("/:repo/refs", get(refs))
@@ -66,26 +67,70 @@ async fn root() -> Html<String> {
     Html(result.join(""))
 }
 
-async fn repo(Path(repo): Path<String>) -> Html<String> {
-    Html(format!(
-        "{}\n\
-        <h1>[wip] repo</h1>\n\
-        <h1>Repository: {repo}</h1>\n\
-        {}",
-        header(),
-        footer()
-    ))
-}
-
 async fn log(Path(repo): Path<String>) -> Html<String> {
-    Html(format!(
-        "{}\n\
-        <h1>[wip] log</h1>\n\
-        <h1>Repository: {repo}</h1>\n\
-        {}",
-        header(),
-        footer()
-    ))
+    let config: Config = Config::load();
+    let mut result: Vec<String> = Vec::new();
+    let baseurl = repo.to_string();
+    result.push(header().to_string());
+    result.push(format!("<h1>{repo}</h1>"));
+    result.push(format!("<span>git clone git://{repo}.git</span>"));
+    result.push(format!(
+        "<span>
+    <a href=\"{baseurl}/log\">Log</a>
+    <a href=\"{baseurl}/tree\">Tree</a>
+    <a href=\"{baseurl}/refs\">Refs</a>
+            </span>"
+    ));
+    result.push("<hr/>".to_string());
+
+    result.push("<table>".to_string());
+    result.push(
+        "<thead><tr>
+        <td><b>Date</b></td>
+        <td><b>Commit message</b></td>
+        <td><b>Author</b></td>
+        <td><b>Files</b></td>
+        <td><b>+</b></td>
+        <td><b>-</b></td>
+        </tr></thread>"
+            .to_string(),
+    );
+
+    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let mut revwalk = repo.revwalk().unwrap();
+    revwalk.push_head().unwrap();
+    for rev in revwalk {
+        let commit = repo.find_commit(rev.unwrap()).unwrap();
+        let message = commit.summary_bytes().unwrap_or(commit.message_bytes());
+        result.push("<tr>".to_string());
+        let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
+        let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
+        let formatted_datetime = datetime.format("%Y-%m-%d %H:%M");
+        result.push(format!("<td>{}</td>", formatted_datetime));
+        result.push(format!(
+            "<td><a href=\"{baseurl}/commit/{}\">{}</a></td>",
+            commit.id(),
+            String::from_utf8_lossy(message)
+        ));
+        result.push(format!("<td>{}</td>", commit.author().name().unwrap()));
+        let tree = &Some(commit.tree().unwrap());
+        let parent_tree = if commit.parent_count() > 0 {
+            Some(commit.parent(0).unwrap().tree().unwrap())
+        } else {
+            None
+        };
+        let diff = Repository::diff_tree_to_tree(&repo, parent_tree.as_ref(), tree.as_ref(), None)
+            .unwrap();
+        let diffstats = diff.stats().unwrap();
+        result.push(format!("<td>{}</td>", diffstats.files_changed()));
+        result.push(format!("<td>+{}</td>", diffstats.insertions()));
+        result.push(format!("<td>-{}</td>", diffstats.deletions()));
+        result.push("</tr>".to_string());
+    }
+
+    result.push("</table>".to_string());
+    result.push(footer().to_string());
+    Html(result.join(""))
 }
 
 async fn refs(Path(repo): Path<String>) -> Html<String> {
@@ -130,6 +175,7 @@ fn header() -> &'static str {
 fn footer() -> &'static str {
     "</body></html>"
 }
+
 fn basename(path: &str, sep: char) -> &str {
     let mut pieces = path.rsplit(sep);
     match pieces.next() {
