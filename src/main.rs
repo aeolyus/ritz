@@ -31,7 +31,8 @@ async fn main() {
         .route("/:repo/commit/:hash", get(commit))
         .route("/:repo/log", get(log))
         .route("/:repo/refs", get(refs))
-        .route("/:repo/tree/*path", get(tree));
+        .route("/:repo/tree/*path", get(tree))
+        .route("/favicon.ico", get(favicon_handler));
 
     let sock_addr = SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), config.port));
     axum::Server::bind(&sock_addr)
@@ -166,6 +167,11 @@ async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> {
         header(),
         footer()
     ))
+}
+
+// TODO: Handle favicon more gracefully
+async fn favicon_handler() -> &'static str {
+    r"This is where I'd put my favicon if I had one ¯\_(ツ)_/¯"
 }
 
 fn header() -> &'static str {
