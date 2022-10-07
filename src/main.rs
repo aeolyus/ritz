@@ -1,6 +1,6 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::Repository;
+use git2::{Oid, Repository};
 use std::env;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -77,9 +77,9 @@ async fn log(Path(repo): Path<String>) -> Html<String> {
     result.push(format!("<span>git clone git://{repo}.git</span>"));
     result.push(format!(
         "<span>
-    <a href=\"{baseurl}/log\">Log</a>
-    <a href=\"{baseurl}/tree\">Tree</a>
-    <a href=\"{baseurl}/refs\">Refs</a>
+    <a href=\"/{baseurl}/log\">Log</a>
+    <a href=\"/{baseurl}/tree\">Tree</a>
+    <a href=\"/{baseurl}/refs\">Refs</a>
             </span>"
     ));
     result.push("<hr/>".to_string());
@@ -109,7 +109,7 @@ async fn log(Path(repo): Path<String>) -> Html<String> {
         let formatted_datetime = datetime.format("%Y-%m-%d %H:%M");
         result.push(format!("<td>{}</td>", formatted_datetime));
         result.push(format!(
-            "<td><a href=\"{baseurl}/commit/{}\">{}</a></td>",
+            "<td><a href=\"/{baseurl}/commit/{}\">{}</a></td>",
             commit.id(),
             String::from_utf8_lossy(message)
         ));
@@ -158,15 +158,65 @@ async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
 }
 
 async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> {
-    Html(format!(
-        "{}\n\
-        <h1>[wip] commit</h1>\n\
-        <h1>Repository: {repo}</h1>\n\
-        <h1>Hash: {hash}</h1>\n\
-        {}",
-        header(),
-        footer()
-    ))
+    let mut result: Vec<String> = Vec::new();
+    let config = Config::load();
+    result.push(header().to_string());
+    result.push(format!("<h1>{repo}</h1>"));
+    result.push(format!("<span>git clone git://{repo}.git</span>"));
+    result.push(format!(
+        "<span>
+    <a href=\"/{repo}/log\">Log</a>
+    <a href=\"/{repo}/tree\">Tree</a>
+    <a href=\"/{repo}/refs\">Refs</a>
+            </span>"
+    ));
+    result.push("<hr/>".to_string());
+
+    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    result.push("<pre>".to_string());
+    result.push("<b>commit</b> ".to_string());
+    result.push(format!("<a href=\"../commit/{hash}\">{hash}</a>\n"));
+
+    let commit = repo.find_commit(Oid::from_str(&hash).unwrap()).unwrap();
+    if commit.parent_count() > 0 {
+        let parent_hash = commit.parent(0).unwrap().id();
+        result.push("<b>parent</b> ".to_string());
+        result.push(format!(
+            "<a href=\"../commit/{parent_hash}\">{parent_hash}</a>\n"
+        ));
+    }
+
+    let author = commit.author().name().unwrap().to_string();
+    let email = commit.author().email().unwrap().to_string();
+    result.push(format!(
+        "<b>Author:</b> {author} <<a href=\"mailto:{email}\">{email}</a>>\n"
+    ));
+    result.push("<b>Date:</b>   ".to_string());
+    let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
+    let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
+    let formatted_datetime = datetime.format("%a, %Y %b %e %H:%M:%S");
+    let date_offset = commit.time().offset_minutes();
+    if date_offset < 0 {
+        result.push(format!(
+            "{formatted_datetime} -{:02}{:02}\n",
+            -date_offset / 60,
+            -date_offset % 60
+        ));
+    } else {
+        result.push(format!(
+            "{formatted_datetime} +{:02}{:02}\n",
+            date_offset / 60,
+            date_offset % 60
+        ));
+    }
+
+    match commit.message() {
+        Some(m) => result.push(format!("\n{}\n", m.to_string())),
+        _ => (),
+    }
+    result.push("</pre>".to_string());
+    result.push(footer().to_string());
+    Html(result.join(""))
 }
 
 // TODO: Handle favicon more gracefully
