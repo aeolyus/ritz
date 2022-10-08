@@ -1,6 +1,6 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::{Oid, Repository};
+use git2::{DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, Oid, Repository};
 use std::env;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -214,7 +214,40 @@ async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> {
         Some(m) => result.push(format!("\n{}\n", m.to_string())),
         _ => (),
     }
+
+    let tree = &Some(commit.tree().unwrap());
+    let parent_tree = if commit.parent_count() > 0 {
+        Some(commit.parent(0).unwrap().tree().unwrap())
+    } else {
+        None
+    };
+    let diff =
+        Repository::diff_tree_to_tree(&repo, parent_tree.as_ref(), tree.as_ref(), None).unwrap();
+    let diffstats = diff.stats().unwrap();
+
+    result.push("<b>Diffstat:</b>\n".to_string());
+    result.push(
+        diffstats
+            .to_buf(DiffStatsFormat::FULL, 80)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string(),
+    );
+    result.push("<table>".to_string());
+    result.push("</table>".to_string());
+
     result.push("</pre>".to_string());
+
+    result.push("<pre>".to_string());
+    result.push("<hr/>".to_string());
+
+    diff.print(DiffFormat::Patch, |d, h, l| {
+        print_diff_line(d, h, l, &mut result)
+    })
+    .unwrap();
+    result.push("</pre>".to_string());
+
     result.push(footer().to_string());
     Html(result.join(""))
 }
@@ -238,4 +271,19 @@ fn basename(path: &str, sep: char) -> &str {
         Some(p) => p.into(),
         None => path.into(),
     }
+}
+
+fn print_diff_line(
+    _delta: DiffDelta,
+    _hunk: Option<DiffHunk>,
+    line: DiffLine,
+    buffer: &mut Vec<String>,
+) -> bool {
+    match line.origin() {
+        '+' | '-' | ' ' => buffer.push(line.origin().to_string()),
+        _ => {}
+    }
+
+    buffer.push(std::str::from_utf8(line.content()).unwrap().to_string());
+    true
 }
