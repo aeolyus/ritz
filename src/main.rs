@@ -1,6 +1,8 @@
 use axum::{extract::Path, response::Html, routing::get, Router};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::{DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, Oid, Repository};
+use git2::{
+    DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, ObjectType, Oid, Repository, Tree,
+};
 use std::env;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -145,16 +147,58 @@ async fn refs(Path(repo): Path<String>) -> Html<String> {
     ))
 }
 
-async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
-    Html(format!(
-        "{}\n\
-        <h1>[wip] tree</h1>\n\
-        <h1>Repository: {repo}</h1>\n\
-        <h1>Path: {path}</h1>\n\
-        {}",
-        header(),
-        footer()
-    ))
+async fn tree(Path((repo, _path)): Path<(String, String)>) -> Html<String> {
+    let mut result: Vec<String> = Vec::new();
+    let config = Config::load();
+    result.push(format!("<h1>{repo}</h1>"));
+    result.push(format!("<span>git clone git://{repo}.git</span>"));
+    result.push(format!(
+        "<span>
+    <a href=\"/{repo}/log\">Log</a>
+    <a href=\"/{repo}/tree\">Tree</a>
+    <a href=\"/{repo}/refs\">Refs</a>
+            </span>"
+    ));
+    result.push("<hr/>".to_string());
+
+    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let head = repo.revparse_single("HEAD").unwrap();
+    let tree = head.into_commit().unwrap().tree().unwrap();
+    result.append(&mut write_files(&repo, &tree));
+    result.push(footer().to_string());
+    Html(result.join(""))
+}
+
+fn write_files(repo: &Repository, tree: &Tree) -> Vec<String> {
+    let mut result = Vec::new();
+    result.push("<table>".to_string());
+    result.push(
+        "<thead><tr>
+        <td><b>Mode</b></td>
+        <td><b>Name</b></td>
+        <td><b>Size</b></td>
+        </tr></thread>"
+            .to_string(),
+    );
+    for te in tree.iter() {
+        result.push("<tr>".to_string());
+        result.push(format!("<td>{:o}</td>", te.filemode()));
+        result.push(format!("<td>{}</td>", te.name().unwrap().to_string()));
+        let obj = te.to_object(repo).unwrap();
+        match obj.kind().unwrap() {
+            ObjectType::Blob => {
+                let blob = obj.into_blob().unwrap();
+                result.push(format!("<td>{}</td>", blob.size()));
+            }
+            ObjectType::Tree => {
+                result.push(format!("<td>{}</td>", 0));
+            }
+            _ => (),
+        }
+        result.push("</tr>".to_string());
+    }
+    result.push("</table>".to_string());
+    result
 }
 
 async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> {
