@@ -147,7 +147,7 @@ async fn refs(Path(repo): Path<String>) -> Html<String> {
     ))
 }
 
-async fn tree(Path((repo, _path)): Path<(String, String)>) -> Html<String> {
+async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
     let mut result: Vec<String> = Vec::new();
     let config = Config::load();
     result.push(format!("<h1>{repo}</h1>"));
@@ -163,8 +163,31 @@ async fn tree(Path((repo, _path)): Path<(String, String)>) -> Html<String> {
 
     let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     let head = repo.revparse_single("HEAD").unwrap();
-    let tree = head.into_commit().unwrap().tree().unwrap();
-    result.append(&mut write_files(&repo, &tree));
+    let path = std::path::Path::new(&path).strip_prefix("/").unwrap();
+    let head_commit = head.into_commit().unwrap();
+    let head_tree = head_commit.tree().unwrap();
+    let obj = if !path.eq(std::path::Path::new("")) {
+        head_tree.get_path(path).unwrap().to_object(&repo).unwrap()
+    } else {
+        head_tree.as_object().to_owned()
+    };
+    match obj.kind().unwrap() {
+        ObjectType::Tree => {
+            let tree = obj.into_tree().unwrap();
+            result.append(&mut write_files(&repo, &tree));
+        }
+        ObjectType::Blob => {
+            let filename = basename(path.to_str().unwrap(), '/');
+            let blob = obj.into_blob().unwrap();
+            result.push(format!("<p>{} ({}B)</p>", filename, blob.size()));
+            result.push("<hr>".to_string());
+            result.push(format!(
+                "<pre>{}</pre>",
+                std::str::from_utf8(blob.content()).unwrap().to_string()
+            ));
+        }
+        _ => (),
+    };
     result.push(footer().to_string());
     Html(result.join(""))
 }
@@ -183,7 +206,11 @@ fn write_files(repo: &Repository, tree: &Tree) -> Vec<String> {
     for te in tree.iter() {
         result.push("<tr>".to_string());
         result.push(format!("<td>{:o}</td>", te.filemode()));
-        result.push(format!("<td>{}</td>", te.name().unwrap().to_string()));
+        result.push(format!(
+            "<td><a href={}/>{}</a></td>",
+            te.name().unwrap().to_string(),
+            te.name().unwrap().to_string(),
+        ));
         let obj = te.to_object(repo).unwrap();
         match obj.kind().unwrap() {
             ObjectType::Blob => {
