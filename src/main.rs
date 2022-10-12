@@ -181,10 +181,14 @@ async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
             let blob = obj.into_blob().unwrap();
             result.push(format!("<p>{} ({}B)</p>", filename, blob.size()));
             result.push("<hr>".to_string());
-            result.push(format!(
-                "<pre>{}</pre>",
-                std::str::from_utf8(blob.content()).unwrap().to_string()
-            ));
+            if blob.is_binary() {
+                result.push("<p>Binary file.</p>".to_string());
+            } else {
+                result.push(format!(
+                    "<pre>{}</pre>",
+                    std::str::from_utf8(blob.content()).unwrap().to_string()
+                ));
+            }
         }
         _ => (),
     };
