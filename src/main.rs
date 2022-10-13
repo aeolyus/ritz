@@ -186,7 +186,7 @@ async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
             } else {
                 result.push(format!(
                     "<pre>{}</pre>",
-                    std::str::from_utf8(blob.content()).unwrap().to_string()
+                    xmlencode(std::str::from_utf8(blob.content()).unwrap().to_string())
                 ));
             }
         }
@@ -359,6 +359,24 @@ fn print_diff_line(
         _ => {}
     }
 
-    buffer.push(std::str::from_utf8(line.content()).unwrap().to_string());
+    buffer.push(xmlencode(
+        std::str::from_utf8(line.content()).unwrap().to_string(),
+    ));
     true
+}
+
+/// Escape characters below as HTML 2.0 / XML 1.0
+fn xmlencode(input: String) -> String {
+    let mut result = String::new();
+    for c in input.chars() {
+        match c {
+            '<' => result.push_str("&lt"),
+            '>' => result.push_str("&gt;"),
+            '\'' => result.push_str("&#39;"),
+            '&' => result.push_str("&amp;"),
+            '"' => result.push_str("&quot;"),
+            _ => result.push(c),
+        }
+    }
+    result
 }
