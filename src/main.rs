@@ -1,10 +1,11 @@
+mod config;
 mod handlers;
 use axum::{routing::get, Router};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 #[tokio::main]
 async fn main() {
-    let config: handlers::Config = handlers::Config::load();
+    let conf = config::Config::load();
     let app = Router::new()
         .route("/", get(handlers::root))
         .route("/:repo", get(handlers::log))
@@ -14,7 +15,7 @@ async fn main() {
         .route("/:repo/tree/*path", get(handlers::tree))
         .route("/favicon.ico", get(handlers::favicon_handler));
 
-    let sock_addr = SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), config.port));
+    let sock_addr = SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), conf.port));
     axum::Server::bind(&sock_addr)
         .serve(app.into_make_service())
         .await

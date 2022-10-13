@@ -1,29 +1,12 @@
+use crate::config::Config;
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{
     DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, ObjectType, Oid, Repository, Tree,
 };
-use std::env;
-const STD_PORT: u16 = 3000;
-
-pub struct Config {
-    pub dir: String,
-    pub port: u16,
-}
-
-impl Config {
-    pub fn load() -> Self {
-        let dir = env::var("RITZ_DIR").unwrap_or("./".to_string());
-        let port = env::var("RITZ_PORT")
-            .unwrap_or(STD_PORT.to_string())
-            .parse::<u16>()
-            .unwrap();
-        Config { dir, port }
-    }
-}
 
 pub async fn root() -> Html<String> {
-    let config: Config = Config::load();
+    let config = Config::load();
     let mut result: Vec<String> = Vec::new();
     result.push(header().to_string());
     result.push("<span>Repositories</span>".to_string());
@@ -50,7 +33,7 @@ pub async fn root() -> Html<String> {
 }
 
 pub async fn log(Path(repo): Path<String>) -> Html<String> {
-    let config: Config = Config::load();
+    let config = Config::load();
     let mut result: Vec<String> = Vec::new();
     let baseurl = repo.to_string();
     result.push(header().to_string());
