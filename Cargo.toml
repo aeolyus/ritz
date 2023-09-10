@@ -11,3 +11,4 @@ tokio = { version="1.21.2", features=["full"] }
 git2 = "0.15.0"
 chrono = "0.4.22"
 anyhow = "1.0.75"
+include_dir = "0.7.3"

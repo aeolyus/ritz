@@ -1,7 +1,8 @@
 pub mod commit;
+pub mod asset;
 
 use crate::config::Config;
-use axum::{extract::Path, response::Html};
+use axum::{extract::Path, http::header, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{ObjectType, Repository, Tree};
 
@@ -107,7 +108,7 @@ pub async fn log(Path(repo): Path<String>) -> Html<String> {
 pub async fn refs(Path(repo): Path<String>) -> Html<String> {
     let config = Config::load();
     let mut result = String::new();
-    result.push_str(header());
+    result.push_str(&header());
     result.push_str(&format!("<h1>{repo}</h1>"));
     result.push_str(&format!("<span>git clone git://{repo}.git</span>"));
     result.push_str(&format!(
@@ -243,13 +244,15 @@ pub async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
     Html(result.join(""))
 }
 
-// TODO: Handle favicon more gracefully
-pub async fn favicon_handler() -> &'static str {
-    r"This is where I'd put my favicon if I had one ¯\_(ツ)_/¯"
-}
-
-fn header() -> &'static str {
-    "<!DOCTYPE html><html><body>"
+fn header() -> String {
+    format!(
+        "<!DOCTYPE html><html> \
+  <head> \
+  <link rel=\"stylesheet\" type=\"text/css\" href=\"/static/style.css\" />
+  <link rel=\"icon\" type=\"image/x-icon\" href=\"/static/favicon.ico\">
+  </head> \
+  <body>"
+    )
 }
 
 fn footer() -> &'static str {
