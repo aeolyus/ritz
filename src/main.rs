@@ -9,13 +9,12 @@ async fn main() {
     let conf = config::Config::load();
     let app = Router::new()
         .route("/", get(handlers::root))
+        .route("/static/*path", get(handlers::asset::asset))
         .route("/:repo", get(handlers::log))
         .route("/:repo/commit/:hash", get(handlers::commit::commit))
         .route("/:repo/log", get(handlers::log))
         .route("/:repo/refs", get(handlers::refs))
-        .route("/:repo/tree/*path", get(handlers::tree))
-        .route("/favicon.ico", get(handlers::favicon_handler));
-
+        .route("/:repo/tree/*path", get(handlers::tree));
     let sock_addr =
         SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), conf.port));
     axum::Server::bind(&sock_addr)
