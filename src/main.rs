@@ -9,7 +9,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(handlers::root))
         .route("/:repo", get(handlers::log))
-        .route("/:repo/commit/:hash", get(handlers::commit))
+        .route("/:repo/commit/:hash", get(handlers::commit::commit))
         .route("/:repo/log", get(handlers::log))
         .route("/:repo/refs", get(handlers::refs))
         .route("/:repo/tree/*path", get(handlers::tree))
