@@ -2,7 +2,8 @@ use crate::config::Config;
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{
-    DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, ObjectType, Oid, Repository, Tree,
+    DiffDelta, DiffFormat, DiffHunk, DiffLine, DiffStatsFormat, ObjectType,
+    Oid, Repository, Tree,
 };
 
 pub async fn root() -> Html<String> {
@@ -61,7 +62,8 @@ pub async fn log(Path(repo): Path<String>) -> Html<String> {
             .to_string(),
     );
 
-    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let repo =
+        Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     let mut revwalk = repo.revwalk().unwrap();
     revwalk.push_head().unwrap();
     for rev in revwalk {
@@ -84,8 +86,13 @@ pub async fn log(Path(repo): Path<String>) -> Html<String> {
         } else {
             None
         };
-        let diff = Repository::diff_tree_to_tree(&repo, parent_tree.as_ref(), tree.as_ref(), None)
-            .unwrap();
+        let diff = Repository::diff_tree_to_tree(
+            &repo,
+            parent_tree.as_ref(),
+            tree.as_ref(),
+            None,
+        )
+        .unwrap();
         let diffstats = diff.stats().unwrap();
         result.push(format!("<td>{}</td>", diffstats.files_changed()));
         result.push(format!("<td>+{}</td>", diffstats.insertions()));
@@ -113,7 +120,8 @@ pub async fn refs(Path(repo): Path<String>) -> Html<String> {
     ));
     result.push_str("<hr/>");
 
-    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let repo =
+        Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     result.push_str("<h2>Branches</h2>");
     result.push_str(
         "<table>
@@ -132,7 +140,10 @@ pub async fn refs(Path(repo): Path<String>) -> Html<String> {
     {
         let r = reference.unwrap();
         result.push_str("<tr>");
-        result.push_str(&format!("<td>{}</td>", &r.shorthand().unwrap().to_string()));
+        result.push_str(&format!(
+            "<td>{}</td>",
+            &r.shorthand().unwrap().to_string()
+        ));
         let commit = r.peel_to_commit().unwrap();
         let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
         let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
@@ -161,7 +172,10 @@ pub async fn refs(Path(repo): Path<String>) -> Html<String> {
     {
         let r = reference.unwrap();
         result.push_str("<tr>");
-        result.push_str(&format!("<td>{}</td>", &r.shorthand().unwrap().to_string()));
+        result.push_str(&format!(
+            "<td>{}</td>",
+            &r.shorthand().unwrap().to_string()
+        ));
         let commit = r.peel_to_commit().unwrap();
         let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
         let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
@@ -190,7 +204,8 @@ pub async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
     ));
     result.push("<hr/>".to_string());
 
-    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let repo =
+        Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     let head = repo.revparse_single("HEAD").unwrap();
     let path = std::path::Path::new(&path).strip_prefix("/").unwrap();
     let head_commit = head.into_commit().unwrap();
@@ -215,7 +230,11 @@ pub async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
             } else {
                 result.push(format!(
                     "<pre>{}</pre>",
-                    xmlencode(std::str::from_utf8(blob.content()).unwrap().to_string())
+                    xmlencode(
+                        std::str::from_utf8(blob.content())
+                            .unwrap()
+                            .to_string()
+                    )
                 ));
             }
         }
@@ -225,7 +244,9 @@ pub async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
     Html(result.join(""))
 }
 
-pub async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> {
+pub async fn commit(
+    Path((repo, hash)): Path<(String, String)>,
+) -> Html<String> {
     let mut result: Vec<String> = Vec::new();
     let config = Config::load();
     result.push(header().to_string());
@@ -240,7 +261,8 @@ pub async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> 
     ));
     result.push("<hr/>".to_string());
 
-    let repo = Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
+    let repo =
+        Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     result.push("<pre>".to_string());
     result.push("<b>commit</b> ".to_string());
     result.push(format!("<a href=\"../commit/{hash}\">{hash}</a>\n"));
@@ -289,8 +311,13 @@ pub async fn commit(Path((repo, hash)): Path<(String, String)>) -> Html<String> 
     } else {
         None
     };
-    let diff =
-        Repository::diff_tree_to_tree(&repo, parent_tree.as_ref(), tree.as_ref(), None).unwrap();
+    let diff = Repository::diff_tree_to_tree(
+        &repo,
+        parent_tree.as_ref(),
+        tree.as_ref(),
+        None,
+    )
+    .unwrap();
     let diffstats = diff.stats().unwrap();
 
     result.push("<b>Diffstat:</b>\n".to_string());
