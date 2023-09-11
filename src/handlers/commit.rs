@@ -1,8 +1,11 @@
 use crate::config::Config;
 use crate::handlers::{footer, header, print_diff_line};
+use anyhow::Result;
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::{DiffFormat, DiffStatsFormat, Oid, Repository};
+use git2::{
+    Diff, DiffFormat, DiffStatsFormat, Oid, Repository, Signature, Tree,
+};
 
 pub async fn commit(
     Path((repo, hash)): Path<(String, String)>,
@@ -105,4 +108,41 @@ pub async fn commit(
 
     result.push(footer().to_string());
     Html(result.join(""))
+}
+
+#[allow(dead_code)]
+struct CommitInfo<'a> {
+    oid: String,
+    parentoid: Option<String>,
+    author: Signature<'a>,
+    msg: Option<String>,
+    commit_tree: Tree<'a>,
+    parent_tree: Option<Tree<'a>>,
+    diff: Diff<'a>,
+}
+
+#[allow(dead_code)]
+fn get_commitinfo(repo: &Repository, oid: String) -> Result<CommitInfo> {
+    let commit = repo.find_commit(Oid::from_str(&oid)?)?;
+    let parent = commit.parent(0).ok();
+    let parentoid = parent.as_ref().map(|c| c.id().to_string());
+    let author = commit.author().to_owned();
+    let msg = commit.message().map(|s| s.into());
+    let commit_tree = commit.tree()?;
+    let parent_tree = parent.map(|c| c.tree().ok()).flatten();
+    let diff = Repository::diff_tree_to_tree(
+        repo,
+        parent_tree.as_ref(),
+        Some(&commit_tree),
+        None,
+    )?;
+    Ok(CommitInfo {
+        oid,
+        parentoid,
+        author,
+        msg,
+        commit_tree,
+        parent_tree,
+        diff,
+    })
 }
