@@ -3,10 +3,11 @@ use crate::error::AppError;
 use crate::handlers::{footer, header, print_diff_line};
 use anyhow::Result;
 use axum::{extract::Path, response::Html};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use git2::{
-    Diff, DiffFormat, DiffStatsFormat, Oid, Repository, Signature, Tree,
+    Diff, DiffFormat, DiffStatsFormat, Oid, Repository, Signature, Time, Tree,
 };
+use std::fmt::Write;
 
 pub async fn commit(
     Path((repo, hash)): Path<(String, String)>,
@@ -28,46 +29,12 @@ pub async fn commit(
     let repo =
         Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     result.push("<pre>".to_string());
-    result.push("<b>commit</b> ".to_string());
-    result.push(format!("<a href=\"../commit/{hash}\">{hash}</a>\n"));
-
     let commit = repo.find_commit(Oid::from_str(&hash).unwrap()).unwrap();
-    if commit.parent_count() > 0 {
-        let parent_hash = commit.parent(0).unwrap().id();
-        result.push("<b>parent</b> ".to_string());
-        result.push(format!(
-            "<a href=\"../commit/{parent_hash}\">{parent_hash}</a>\n"
-        ));
-    }
 
-    let author = commit.author().name().unwrap().to_string();
-    let email = commit.author().email().unwrap().to_string();
-    result.push(format!(
-        "<b>Author:</b> {author} <<a href=\"mailto:{email}\">{email}</a>>\n"
-    ));
-    result.push("<b>Date:</b>   ".to_string());
-    let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
-    let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
-    let formatted_datetime = datetime.format("%a, %Y %b %e %H:%M:%S");
-    let date_offset = commit.time().offset_minutes();
-    if date_offset < 0 {
-        result.push(format!(
-            "{formatted_datetime} -{:02}{:02}\n",
-            -date_offset / 60,
-            -date_offset % 60
-        ));
-    } else {
-        result.push(format!(
-            "{formatted_datetime} +{:02}{:02}\n",
-            date_offset / 60,
-            date_offset % 60
-        ));
-    }
-
-    match commit.message() {
-        Some(m) => result.push(format!("\n{}\n", m.to_string())),
-        _ => (),
-    }
+    let mut temp_buf = String::new();
+    let ci = &get_commitinfo(&repo, hash)?;
+    print_commit(&mut temp_buf, ci)?;
+    result.push(temp_buf);
 
     let tree = &Some(commit.tree().unwrap());
     let parent_tree = if commit.parent_count() > 0 {
@@ -146,4 +113,35 @@ fn get_commitinfo(repo: &Repository, oid: String) -> Result<CommitInfo> {
         parent_tree,
         diff,
     })
+}
+
+fn print_commit<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
+    write!(w, "<b>commit</b> ")?;
+    write!(w, "<a href=\"../commit/{}\">{}</a>\n", ci.oid, ci.oid)?;
+    if let Some(poid) = &ci.parentoid {
+        write!(w, "<b>parent</b> ")?;
+        write!(w, "<a href=\"../commit/{}\">{}</a>\n", poid, poid)?;
+    }
+    write!(w, "<b>Author:</b> ")?;
+    write!(w, "{}", ci.author.name().unwrap_or(""))?;
+    let email = ci.author.email().unwrap_or("");
+    write!(w, " <<a href=\"mailto:{}]\">{}</a>>\n", email, email)?;
+    write!(w, "<b>Date:</b>   ")?;
+    print_time(w, ci.author.when())?;
+    write!(w, "\n")?;
+    if let Some(msg) = &ci.msg {
+        write!(w, "\n{}\n", msg)?;
+    }
+    return Ok(());
+}
+
+fn print_time<W: Write>(w: &mut W, intime: Time) -> Result<()> {
+    let utc = &NaiveDateTime::from_timestamp(
+        intime.seconds() + i64::from(intime.offset_minutes() * 60),
+        0,
+    );
+    let dt = Utc.from_utc_datetime(utc);
+    let fmt_dt = dt.format("%a, %Y %b %e %H:%M:%S %:z");
+    write!(w, "{}", fmt_dt)?;
+    return Ok(());
 }
