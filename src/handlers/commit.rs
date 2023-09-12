@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::error::AppError;
 use crate::handlers::{footer, header, print_diff_line};
 use anyhow::Result;
 use axum::{extract::Path, response::Html};
@@ -9,7 +10,7 @@ use git2::{
 
 pub async fn commit(
     Path((repo, hash)): Path<(String, String)>,
-) -> Html<String> {
+) -> Result<Html<String>, AppError> {
     let mut result: Vec<String> = Vec::new();
     let config = Config::load();
     result.push(header().to_string());
@@ -107,7 +108,7 @@ pub async fn commit(
     result.push("</pre>".to_string());
 
     result.push(footer().to_string());
-    Html(result.join(""))
+    Ok(Html(result.join("")))
 }
 
 #[allow(dead_code)]

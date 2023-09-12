@@ -1,4 +1,5 @@
 mod config;
+mod error;
 mod handlers;
 use axum::{routing::get, Router};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
