@@ -5,7 +5,8 @@ use anyhow::{anyhow, Result};
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use git2::{
-    Diff, DiffFormat, DiffStatsFormat, Oid, Repository, Signature, Time, Tree,
+    Delta, Diff, DiffFindOptions, DiffFormat, Oid, Patch, Repository,
+    Signature, Time, Tree,
 };
 use std::fmt::Write;
 
@@ -34,6 +35,7 @@ pub async fn commit(
     let mut temp_buf = String::new();
     let ci = &get_commitinfo(&repo, hash)?;
     print_commit(&mut temp_buf, ci)?;
+    print_diffstat(&mut temp_buf, ci)?;
     result.push(temp_buf);
 
     let tree = &Some(commit.tree().unwrap());
@@ -49,24 +51,6 @@ pub async fn commit(
         None,
     )
     .unwrap();
-    let diffstats = diff.stats().unwrap();
-
-    result.push("<b>Diffstat:</b>\n".to_string());
-    result.push(
-        diffstats
-            .to_buf(DiffStatsFormat::FULL, 80)
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string(),
-    );
-    result.push("<table>".to_string());
-    result.push("</table>".to_string());
-
-    result.push("</pre>".to_string());
-
-    result.push("<pre>".to_string());
-    result.push("<hr/>".to_string());
 
     diff.print(DiffFormat::Patch, |d, h, l| {
         print_diff_line(d, h, l, &mut result)
@@ -78,6 +62,13 @@ pub async fn commit(
     Ok(Html(result.join("")))
 }
 
+struct DeltaInfo<'a> {
+    #[allow(dead_code)]
+    patch: Patch<'a>,
+    add_count: usize,
+    del_count: usize,
+}
+
 #[allow(dead_code)]
 struct CommitInfo<'a> {
     oid: String,
@@ -87,6 +78,10 @@ struct CommitInfo<'a> {
     commit_tree: Tree<'a>,
     parent_tree: Option<Tree<'a>>,
     diff: Diff<'a>,
+    deltas: Vec<DeltaInfo<'a>>,
+    add_count: usize,
+    del_count: usize,
+    file_count: usize,
 }
 
 #[allow(dead_code)]
@@ -98,12 +93,36 @@ fn get_commitinfo(repo: &Repository, oid: String) -> Result<CommitInfo> {
     let msg = commit.message().map(|s| s.into());
     let commit_tree = commit.tree()?;
     let parent_tree = parent.map(|c| c.tree().ok()).flatten();
-    let diff = Repository::diff_tree_to_tree(
+    let mut diff = Repository::diff_tree_to_tree(
         repo,
         parent_tree.as_ref(),
         Some(&commit_tree),
         None,
     )?;
+
+    // Diff stats
+    let mut add_count = 0;
+    let mut del_count = 0;
+    let file_count = diff.deltas().len();
+    let mut opts = &mut DiffFindOptions::new();
+    // Find exact match renames and copies
+    opts = opts.renames(true).copies(true).exact_match_only(true);
+    diff.find_similar(Some(&mut opts))?;
+    let mut deltas = vec![];
+    for (idx, _) in diff.deltas().enumerate() {
+        let patch = Patch::from_diff(&diff, idx)?
+            .ok_or(anyhow!("Error getting patch"))?;
+        let (_, add, del) = patch.line_stats()?;
+        let di = DeltaInfo {
+            patch,
+            add_count: add,
+            del_count: del,
+        };
+        add_count += add;
+        del_count += del;
+        deltas.push(di);
+    }
+
     Ok(CommitInfo {
         oid,
         parentoid,
@@ -112,6 +131,10 @@ fn get_commitinfo(repo: &Repository, oid: String) -> Result<CommitInfo> {
         commit_tree,
         parent_tree,
         diff,
+        deltas,
+        add_count,
+        del_count,
+        file_count,
     })
 }
 
@@ -146,4 +169,89 @@ fn print_time<W: Write>(w: &mut W, intime: Time) -> Result<()> {
     let fmt_dt = dt.format("%a, %Y %b %e %H:%M:%S %:z");
     write!(w, "{}", fmt_dt)?;
     return Ok(());
+}
+
+fn print_diffstat<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
+    write!(w, "<b>Diffstat:</b>\n")?;
+    write!(w, "<table>")?;
+    const TOTAL: usize = 80;
+
+    for (i, delta) in ci.diff.deltas().enumerate() {
+        let c = match delta.status() {
+            Delta::Added => 'A',
+            Delta::Copied => 'C',
+            Delta::Deleted => 'D',
+            Delta::Modified => 'M',
+            Delta::Renamed => 'R',
+            Delta::Typechange => 'T',
+            _ => ' ',
+        };
+        if c == ' ' {
+            write!(w, "<tr><td>{}", c)?;
+        } else {
+            write!(w, "<tr><td class=\"{}\">{}", c, c)?;
+        }
+        write!(w, "</td><td><a href=\"#h{}\">", i)?;
+        write!(
+            w,
+            "{}",
+            delta
+                .old_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .display()
+        )?;
+        if delta.old_file().path() != delta.new_file().path() {
+            write!(
+                w,
+                " -> {}",
+                delta
+                    .old_file()
+                    .path()
+                    .unwrap_or(std::path::Path::new(""))
+                    .display()
+            )?;
+        }
+        write!(w, "</a>")?;
+        let mut add = ci.deltas[i].add_count;
+        let mut del = ci.deltas[i].del_count;
+        let changed = add + del;
+        if changed > TOTAL {
+            if add != 0 {
+                add = (add / changed * TOTAL) + 1;
+            }
+            if del != 0 {
+                del = (del / changed * TOTAL) + 1;
+            }
+        }
+        write!(w, "</td><td> | </td>")?;
+        write!(w, "<td class=\"num\">{}</td>", changed)?;
+        write!(w, "<td><span class=\"i\">")?;
+        write!(w, "{:+<1$}", "", add)?;
+        write!(w, "</span><span class=\"d\">")?;
+        write!(w, "{:-<1$}", "", del)?;
+        write!(w, "</span></td></tr>\n")?;
+    }
+    write!(w, "</table></pre>")?;
+    write!(
+        w,
+        "<pre>{} file{} changed, {} insertion{}(+), {} deletion{}(-)\n",
+        ci.deltas.len(),
+        match ci.deltas.len() {
+            1 => "",
+            _ => "s",
+        },
+        ci.add_count,
+        match ci.add_count {
+            1 => "",
+            _ => "s",
+        },
+        ci.del_count,
+        match ci.del_count {
+            1 => "",
+            _ => "s",
+        },
+    )?;
+    write!(w, "<hr/>")?;
+    Ok(())
 }
