@@ -1,12 +1,12 @@
 use crate::config::Config;
 use crate::error::AppError;
-use crate::handlers::{footer, header, print_diff_line};
+use crate::handlers::{footer, header};
 use anyhow::{anyhow, Result};
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use git2::{
-    Delta, Diff, DiffFindOptions, DiffFormat, Oid, Patch, Repository,
-    Signature, Time, Tree,
+    Delta, Diff, DiffFindOptions, DiffFlags, Oid, Patch, Repository, Signature,
+    Time, Tree,
 };
 use std::fmt::Write;
 
@@ -30,34 +30,13 @@ pub async fn commit(
     let repo =
         Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
     result.push("<pre>".to_string());
-    let commit = repo.find_commit(Oid::from_str(&hash).unwrap()).unwrap();
-
-    let mut temp_buf = String::new();
+    let mut buf = String::new();
     let ci = &get_commitinfo(&repo, hash)?;
-    print_commit(&mut temp_buf, ci)?;
-    print_diffstat(&mut temp_buf, ci)?;
-    result.push(temp_buf);
-
-    let tree = &Some(commit.tree().unwrap());
-    let parent_tree = if commit.parent_count() > 0 {
-        Some(commit.parent(0).unwrap().tree().unwrap())
-    } else {
-        None
-    };
-    let diff = Repository::diff_tree_to_tree(
-        &repo,
-        parent_tree.as_ref(),
-        tree.as_ref(),
-        None,
-    )
-    .unwrap();
-
-    diff.print(DiffFormat::Patch, |d, h, l| {
-        print_diff_line(d, h, l, &mut result)
-    })
-    .unwrap();
+    print_commit(&mut buf, ci)?;
+    print_diffstat(&mut buf, ci)?;
+    print_diff(&mut buf, ci)?;
+    result.push(buf);
     result.push("</pre>".to_string());
-
     result.push(footer().to_string());
     Ok(Html(result.join("")))
 }
@@ -253,5 +232,78 @@ fn print_diffstat<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
         },
     )?;
     write!(w, "<hr/>")?;
+    Ok(())
+}
+
+fn print_diff<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
+    let diff = &ci.diff;
+    for i in 0..diff.deltas().len() {
+        let patch = Patch::from_diff(&diff, i)?
+            .ok_or(anyhow!("Error getting patch"))?;
+        let delta = patch.delta();
+
+        let old_file = delta
+            .old_file()
+            .path()
+            .unwrap_or(std::path::Path::new(""))
+            .display();
+        let new_file = delta
+            .new_file()
+            .path()
+            .unwrap_or(std::path::Path::new(""))
+            .display();
+        write!(
+            w,
+            "<b>diff --git a/<a id=\"h{}\" href=\"../tree/{}\">{}</a>",
+            i, old_file, old_file,
+        )?;
+        write!(
+            w,
+            " b/<a href=\"../tree/{}\">{}</a></b>\n",
+            new_file, new_file
+        )?;
+
+        if delta.flags().contains(DiffFlags::BINARY) {
+            write!(w, "Binary files differ\n")?;
+        }
+
+        for j in 0..patch.num_hunks() {
+            let Ok((hunk, _)) = patch.hunk(j) else {
+                break;
+            };
+            write!(
+                w,
+                "<a href=\"#h{}-{}\" id=\"h{}-{}\" class=\"h\">",
+                i, j, i, j,
+            )?;
+            write!(w, "{}", String::from_utf8(hunk.header().to_vec())?)?;
+            write!(w, "</a>")?;
+
+            for k in 0..100 {
+                let Ok(line) = patch.line_in_hunk(j, k) else {
+                    break;
+                };
+                if line.old_lineno().is_none() {
+                    write!(
+                        w,
+                        "<a href=\"#h{}-{}-{}\" id=\"h{}-{}-{}\" class=\"i\">+",
+                        i, j, k, i, j, k
+                    )?;
+                } else if line.new_lineno().is_none() {
+                    write!(
+                        w,
+                        "<a href=\"#h{}-{}-{}\" id=\"h{}-{}-{}\" class=\"d\">-",
+                        i, j, k, i, j, k
+                    )?;
+                } else {
+                    write!(w, " ")?;
+                }
+                write!(w, "{}", String::from_utf8(line.content().to_vec())?)?;
+                if line.old_lineno().is_none() || line.new_lineno().is_none() {
+                    write!(w, "</a>")?;
+                }
+            }
+        }
+    }
     Ok(())
 }
