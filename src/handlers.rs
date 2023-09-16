@@ -3,7 +3,7 @@ pub mod commit;
 use crate::config::Config;
 use axum::{extract::Path, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::{DiffDelta, DiffHunk, DiffLine, ObjectType, Repository, Tree};
+use git2::{ObjectType, Repository, Tree};
 
 pub async fn root() -> Html<String> {
     let config = Config::load();
@@ -262,23 +262,6 @@ fn basename(path: &str, sep: char) -> &str {
         Some(p) => p.into(),
         None => path.into(),
     }
-}
-
-fn print_diff_line(
-    _delta: DiffDelta,
-    _hunk: Option<DiffHunk>,
-    line: DiffLine,
-    buffer: &mut Vec<String>,
-) -> bool {
-    match line.origin() {
-        '+' | '-' | ' ' => buffer.push(line.origin().to_string()),
-        _ => {}
-    }
-
-    buffer.push(xmlencode(
-        std::str::from_utf8(line.content()).unwrap().to_string(),
-    ));
-    true
 }
 
 /// Escape characters below as HTML 2.0 / XML 1.0
