@@ -18,3 +18,7 @@ pre a.i {
 pre a.d {
   color: #e00;
 }
+
+#log tr:hover td {
+  background-color: #ddd;
+}

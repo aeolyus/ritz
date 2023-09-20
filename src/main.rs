@@ -12,9 +12,9 @@ async fn main() {
     let app = Router::new()
         .route("/", get(handlers::root))
         .route("/static/*path", get(handlers::asset::asset))
-        .route("/:repo", get(handlers::log))
+        .route("/:repo", get(handlers::log::log))
         .route("/:repo/commit/:hash", get(handlers::commit::commit))
-        .route("/:repo/log", get(handlers::log))
+        .route("/:repo/log", get(handlers::log::log))
         .route("/:repo/refs", get(handlers::refs))
         .route("/:repo/tree/*path", get(handlers::tree));
     let sock_addr =
