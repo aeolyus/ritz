@@ -1,13 +1,11 @@
 use crate::config::Config;
+use crate::data::{get_commitinfo, CommitInfo};
 use crate::error::AppError;
 use crate::handlers::{footer, header};
+use crate::util::print_time;
 use anyhow::{anyhow, Result};
 use axum::{extract::Path, response::Html};
-use chrono::{DateTime, FixedOffset, NaiveDateTime};
-use git2::{
-    Delta, Diff, DiffFindOptions, DiffFlags, Oid, Patch, Repository, Signature,
-    Time, Tree,
-};
+use git2::{Delta, DiffFlags, Patch, Repository};
 use std::fmt::Write;
 
 pub async fn commit(
@@ -41,82 +39,6 @@ pub async fn commit(
     Ok(Html(result.join("")))
 }
 
-struct DeltaInfo<'a> {
-    #[allow(dead_code)]
-    patch: Patch<'a>,
-    add_count: usize,
-    del_count: usize,
-}
-
-#[allow(dead_code)]
-struct CommitInfo<'a> {
-    oid: String,
-    parentoid: Option<String>,
-    author: Signature<'a>,
-    msg: Option<String>,
-    commit_tree: Tree<'a>,
-    parent_tree: Option<Tree<'a>>,
-    diff: Diff<'a>,
-    deltas: Vec<DeltaInfo<'a>>,
-    add_count: usize,
-    del_count: usize,
-    file_count: usize,
-}
-
-#[allow(dead_code)]
-fn get_commitinfo(repo: &Repository, oid: String) -> Result<CommitInfo> {
-    let commit = repo.find_commit(Oid::from_str(&oid)?)?;
-    let parent = commit.parent(0).ok();
-    let parentoid = parent.as_ref().map(|c| c.id().to_string());
-    let author = commit.author().to_owned();
-    let msg = commit.message().map(|s| s.into());
-    let commit_tree = commit.tree()?;
-    let parent_tree = parent.map(|c| c.tree().ok()).flatten();
-    let mut diff = Repository::diff_tree_to_tree(
-        repo,
-        parent_tree.as_ref(),
-        Some(&commit_tree),
-        None,
-    )?;
-
-    // Diff stats
-    let mut add_count = 0;
-    let mut del_count = 0;
-    let file_count = diff.deltas().len();
-    let mut opts = &mut DiffFindOptions::new();
-    // Find exact match renames and copies
-    opts = opts.renames(true).copies(true).exact_match_only(true);
-    diff.find_similar(Some(&mut opts))?;
-    let mut deltas = vec![];
-    for (idx, _) in diff.deltas().enumerate() {
-        let patch = Patch::from_diff(&diff, idx)?
-            .ok_or(anyhow!("Error getting patch"))?;
-        let (_, add, del) = patch.line_stats()?;
-        let di = DeltaInfo {
-            patch,
-            add_count: add,
-            del_count: del,
-        };
-        add_count += add;
-        del_count += del;
-        deltas.push(di);
-    }
-
-    Ok(CommitInfo {
-        oid,
-        parentoid,
-        author,
-        msg,
-        commit_tree,
-        parent_tree,
-        diff,
-        deltas,
-        add_count,
-        del_count,
-        file_count,
-    })
-}
-
 fn print_commit<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
     write!(w, "<b>commit</b> ")?;
     write!(w, "<a href=\"../commit/{}\">{}</a>\n", ci.oid, ci.oid)?;
@@ -134,19 +56,6 @@ fn print_commit<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
     if let Some(msg) = &ci.msg {
         write!(w, "\n{}\n", msg)?;
     }
-    return Ok(());
-}
-
-fn print_time<W: Write>(w: &mut W, intime: Time) -> Result<()> {
-    let utc = NaiveDateTime::from_timestamp_opt(intime.seconds(), 0)
-        .ok_or(anyhow!("Error parsing timestamp seconds: {:#?}", intime))?;
-    let offset = FixedOffset::east_opt(intime.offset_minutes() * 60).ok_or(
-        anyhow!("Error parsing timestamp offset minutes: {:#?}", intime),
-    )?;
-    let dt: DateTime<FixedOffset> =
-        DateTime::from_naive_utc_and_offset(utc, offset);
-    let fmt_dt = dt.format("%a, %Y %b %e %H:%M:%S %:z");
-    write!(w, "{}", fmt_dt)?;
     return Ok(());
 }
 
