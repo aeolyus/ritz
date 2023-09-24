@@ -23,3 +23,36 @@ pub fn print_time_short<W: Write>(w: &mut W, intime: Time) -> Result<()> {
     write!(w, "{}", fmt_dt)?;
     return Ok(());
 }
+
+/// Escape characters below as HTML 2.0 / XML 1.0
+pub fn xmlencode(input: &str) -> String {
+    let mut result = String::new();
+    for c in input.chars() {
+        match c {
+            '<' => result.push_str("&lt"),
+            '>' => result.push_str("&gt;"),
+            '\'' => result.push_str("&#39;"),
+            '&' => result.push_str("&amp;"),
+            '"' => result.push_str("&quot;"),
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
+/// Escape characters below as HTML 2.0 / XML 1.0, ignoring '\n' and '\r'
+pub fn xmlencodeline(input: &str) -> String {
+    let mut result = String::new();
+    for c in input.chars() {
+        match c {
+            '<' => result.push_str("&lt"),
+            '>' => result.push_str("&gt;"),
+            '\'' => result.push_str("&#39;"),
+            '&' => result.push_str("&amp;"),
+            '"' => result.push_str("&quot;"),
+            '\r' | '\n' => (),
+            _ => result.push(c),
+        }
+    }
+    result
+}

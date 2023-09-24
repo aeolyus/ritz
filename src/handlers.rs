@@ -3,6 +3,7 @@ pub mod commit;
 pub mod log;
 
 use crate::config::Config;
+use crate::util::xmlencode;
 use axum::{extract::Path, http::header, response::Html};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{ObjectType, Repository, Tree};
@@ -163,6 +164,7 @@ pub async fn tree(Path((repo, path)): Path<(String, String)>) -> Html<String> {
                         std::str::from_utf8(blob.content())
                             .unwrap()
                             .to_string()
+                            .as_ref()
                     )
                 ));
             }
@@ -194,22 +196,6 @@ fn basename(path: &str, sep: char) -> &str {
         Some(p) => p.into(),
         None => path.into(),
     }
-}
-
-/// Escape characters below as HTML 2.0 / XML 1.0
-fn xmlencode(input: String) -> String {
-    let mut result = String::new();
-    for c in input.chars() {
-        match c {
-            '<' => result.push_str("&lt"),
-            '>' => result.push_str("&gt;"),
-            '\'' => result.push_str("&#39;"),
-            '&' => result.push_str("&amp;"),
-            '"' => result.push_str("&quot;"),
-            _ => result.push(c),
-        }
-    }
-    result
 }
 
 fn write_files(repo: &Repository, tree: &Tree) -> Vec<String> {
