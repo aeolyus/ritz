@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::data::{get_commitinfo, CommitInfo};
 use crate::error::AppError;
 use crate::handlers::{footer, header};
-use crate::util::print_time;
+use crate::util::{print_time, xmlencode, xmlencodeline};
 use anyhow::{anyhow, Result};
 use axum::{extract::Path, response::Html};
 use git2::{Delta, DiffFlags, Patch, Repository};
@@ -47,14 +47,14 @@ fn print_commit<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
         write!(w, "<a href=\"../commit/{}\">{}</a>\n", poid, poid)?;
     }
     write!(w, "<b>Author:</b> ")?;
-    write!(w, "{}", ci.author.name().unwrap_or(""))?;
-    let email = ci.author.email().unwrap_or("");
+    write!(w, "{}", xmlencode(ci.author.name().unwrap_or("")))?;
+    let email = xmlencode(ci.author.email().unwrap_or(""));
     write!(w, " <<a href=\"mailto:{}]\">{}</a>>\n", email, email)?;
     write!(w, "<b>Date:</b>   ")?;
     print_time(w, ci.author.when())?;
     write!(w, "\n")?;
     if let Some(msg) = &ci.msg {
-        write!(w, "\n{}\n", msg)?;
+        write!(w, "\n{}\n", xmlencode(msg))?;
     }
     return Ok(());
 }
@@ -83,21 +83,29 @@ fn print_diffstat<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
         write!(
             w,
             "{}",
-            delta
-                .old_file()
-                .path()
-                .unwrap_or(std::path::Path::new(""))
-                .display()
-        )?;
-        if delta.old_file().path() != delta.new_file().path() {
-            write!(
-                w,
-                " -> {}",
+            xmlencode(
                 delta
                     .old_file()
                     .path()
                     .unwrap_or(std::path::Path::new(""))
                     .display()
+                    .to_string()
+                    .as_ref()
+            )
+        )?;
+        if delta.old_file().path() != delta.new_file().path() {
+            write!(
+                w,
+                " -> {}",
+                xmlencode(
+                    delta
+                        .old_file()
+                        .path()
+                        .unwrap_or(std::path::Path::new(""))
+                        .display()
+                        .to_string()
+                        .as_ref()
+                )
             )?;
         }
         write!(w, "</a>")?;
@@ -151,16 +159,24 @@ fn print_diff<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
             .ok_or(anyhow!("Error getting patch"))?;
         let delta = patch.delta();
 
-        let old_file = delta
-            .old_file()
-            .path()
-            .unwrap_or(std::path::Path::new(""))
-            .display();
-        let new_file = delta
-            .new_file()
-            .path()
-            .unwrap_or(std::path::Path::new(""))
-            .display();
+        let old_file = xmlencode(
+            delta
+                .old_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .display()
+                .to_string()
+                .as_ref(),
+        );
+        let new_file = xmlencode(
+            delta
+                .new_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .display()
+                .to_string()
+                .as_ref(),
+        );
         write!(
             w,
             "<b>diff --git a/<a id=\"h{}\" href=\"../tree/{}\">{}</a>",
@@ -185,10 +201,15 @@ fn print_diff<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
                 "<a href=\"#h{}-{}\" id=\"h{}-{}\" class=\"h\">",
                 i, j, i, j,
             )?;
-            write!(w, "{}", String::from_utf8(hunk.header().to_vec())?)?;
+            write!(
+                w,
+                "{}",
+                xmlencode(String::from_utf8(hunk.header().to_vec())?.as_ref())
+            )?;
             write!(w, "</a>")?;
 
-            for k in 0..100 {
+            let mut k = 0;
+            loop {
                 let Ok(line) = patch.line_in_hunk(j, k) else {
                     break;
                 };
@@ -207,10 +228,18 @@ fn print_diff<W: Write>(w: &mut W, ci: &CommitInfo) -> Result<()> {
                 } else {
                     write!(w, " ")?;
                 }
-                write!(w, "{}", String::from_utf8(line.content().to_vec())?)?;
+                write!(
+                    w,
+                    "{}",
+                    xmlencodeline(
+                        String::from_utf8(line.content().to_vec())?.as_ref()
+                    )
+                )?;
+                write!(w, "\n")?;
                 if line.old_lineno().is_none() || line.new_lineno().is_none() {
                     write!(w, "</a>")?;
                 }
+                k += 1;
             }
         }
     }
