@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.5.16"
-tokio = { version="1.21.2", features=["full"] }
-git2 = "0.15.0"
-chrono = "0.4.22"
+axum = "0.6.20"
+tokio = { version="1.32.0", features=["full"] }
+git2 = "0.18.1"
+chrono = "0.4.31"
 anyhow = "1.0.75"
 include_dir = "0.7.3"
