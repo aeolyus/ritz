@@ -15,7 +15,7 @@ async fn main() {
         .route("/:repo", get(handlers::log::log))
         .route("/:repo/commit/:hash", get(handlers::commit::commit))
         .route("/:repo/log", get(handlers::log::log))
-        .route("/:repo/refs", get(handlers::refs))
+        .route("/:repo/refs", get(handlers::refs::refs))
         .route("/:repo/tree/*path", get(handlers::tree));
     let sock_addr =
         SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), conf.port));
