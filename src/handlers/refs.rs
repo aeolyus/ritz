@@ -1,10 +1,20 @@
 use crate::config::Config;
-use crate::handlers::{header, footer};
+use crate::data::{get_commitinfo, CommitInfo};
+use crate::error::AppError;
+use crate::handlers::{footer, header};
+use crate::util::{print_time_short, xmlencode};
+use anyhow::Result;
 use axum::{extract::Path, response::Html};
-use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::Repository;
+use git2::{Reference, Repository};
+use std::cmp::Ordering;
+use std::fmt::Write;
 
-pub async fn refs(Path(repo): Path<String>) -> Html<String> {
+struct ReferenceInfo<'a> {
+    rf: Reference<'a>,
+    commitinfo: CommitInfo<'a>,
+}
+
+pub async fn refs(Path(repo): Path<String>) -> Result<Html<String>, AppError> {
     let config = Config::load();
     let mut result = String::new();
     result.push_str(&header());
@@ -21,70 +31,82 @@ pub async fn refs(Path(repo): Path<String>) -> Html<String> {
 
     let repo =
         Repository::open(std::path::Path::new(&config.dir).join(repo)).unwrap();
-    result.push_str("<h2>Branches</h2>");
-    result.push_str(
-        "<table>
-        <thead>
-        <tr>
-        <td><b>Name</b></td>
-        <td><b>Last commit date</b></td>
-        <td><b>Author</b></td>
-        </tr>
-        </thead>",
-    );
-    for reference in repo
-        .references()
-        .unwrap()
-        .filter(|r| r.as_ref().unwrap().is_branch())
-    {
-        let r = reference.unwrap();
-        result.push_str("<tr>");
-        result.push_str(&format!(
-            "<td>{}</td>",
-            &r.shorthand().unwrap().to_string()
-        ));
-        let commit = r.peel_to_commit().unwrap();
-        let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
-        let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
-        let formatted_datetime = datetime.format("%Y-%m-%d %H:%M");
-        result.push_str(&format!("<td>{}</td>", formatted_datetime,));
-        result.push_str(&format!("<td>{}</td>", &commit.author().to_string()));
-        result.push_str("</tr>");
-    }
-    result.push_str("</table>");
-
-    result.push_str("<h2>Tags</h2>");
-    result.push_str(
-        "<table>
-        <thead>
-        <tr>
-        <td><b>Name</b></td>
-        <td><b>Last commit date</b></td>
-        <td><b>Author</b></td>
-        </tr>
-        </thead>",
-    );
-    for reference in repo
-        .references()
-        .unwrap()
-        .filter(|r| r.as_ref().unwrap().is_tag())
-    {
-        let r = reference.unwrap();
-        result.push_str("<tr>");
-        result.push_str(&format!(
-            "<td>{}</td>",
-            &r.shorthand().unwrap().to_string()
-        ));
-        let commit = r.peel_to_commit().unwrap();
-        let naive = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
-        let datetime: DateTime<Utc> = DateTime::from_utc(naive, Utc);
-        let formatted_datetime = datetime.format("%Y-%m-%d %H:%M");
-        result.push_str(&format!("<td>{}</td>", formatted_datetime,));
-        result.push_str(&format!("<td>{}</td>", &commit.author().to_string()));
-        result.push_str("</tr>");
-    }
-    result.push_str("</table>");
-
+    write_refs(&mut result, &repo)?;
     result.push_str(footer());
-    Html(result)
+    Ok(Html(result))
+}
+
+fn write_refs<W: Write>(w: &mut W, repo: &Repository) -> Result<()> {
+    let mut j = 0;
+    let mut count = 0;
+    let titles = vec!["Branches", "Tags"];
+    let ids = vec!["branches", "tags"];
+    let refs = get_refs(repo)?;
+    for (_i, r) in refs.iter().enumerate() {
+        if j == 0 && r.rf.is_tag() {
+            if count >= 1 {
+                write!(w, "</tbody></table><br/>\n")?;
+            }
+            count = 0;
+            j = 1;
+        }
+
+        // Print header if it has an entry first
+        if count == 0 {
+            count += 1;
+            write!(
+                w,
+                "<h2>{}</h2>
+                   <table id=\"{}\">
+                   <thead>\n<tr>
+                   <td><b>Name</b></td>
+                   <td><b>Last commit date</b></td>
+                   <td><b>Author</b></td>
+                   </tr></thead>
+                   <tbody>",
+                titles[j], ids[j]
+            )?;
+        }
+
+        write!(w, "<tr><td>")?;
+        write!(w, "{}", xmlencode(&r.rf.shorthand().unwrap_or("")))?;
+        write!(w, "</td><td>")?;
+        print_time_short(w, r.commitinfo.author.when())?;
+        write!(w, "</td><td>")?;
+        write!(
+            w,
+            "{}",
+            xmlencode(&r.commitinfo.author.name().unwrap_or(""))
+        )?;
+        write!(w, "</td></tr>\n")?;
+    }
+    if count >= 1 {
+        write!(w, "</tbody></table>")?;
+    }
+    Ok(())
+}
+
+/// Returns a [ReferenceInfo] vector of branches and tags sorted by [refs_cmp]
+fn get_refs(repo: &Repository) -> Result<Vec<ReferenceInfo>> {
+    let mut ris = repo
+        .references()?
+        .filter_map(|rf| rf.ok())
+        .filter(|rf| rf.is_tag() | rf.is_branch())
+        .filter_map(|rf| {
+            let obj = rf.peel(git2::ObjectType::Any).ok()?;
+            let commitinfo = get_commitinfo(repo, obj.id().to_string()).ok()?;
+            Some(ReferenceInfo { rf, commitinfo })
+        })
+        .collect::<Vec<ReferenceInfo>>();
+    ris.sort_by(refs_cmp);
+    Ok(ris)
+}
+
+/// Sort by type with branch first, by date with most recent first, then
+/// alphabetically by shorthand name
+fn refs_cmp(a: &ReferenceInfo, b: &ReferenceInfo) -> Ordering {
+    a.rf.is_tag()
+        .cmp(&b.rf.is_tag())
+        .then(b.commitinfo.author.when().cmp(&a.commitinfo.author.when()))
+        .then(a.rf.shorthand_bytes().cmp(b.rf.shorthand_bytes()))
 }
