@@ -1,11 +1,10 @@
 use crate::config::Config;
 use crate::data::{self, CommitInfo};
 use crate::error::AppError;
-use crate::handlers::{footer, header};
+use crate::handlers::header;
 use crate::util::print_time_short;
 use anyhow::{anyhow, Result};
 use axum::{extract::Path, response::Html};
-use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{Oid, Repository};
 use std::fmt::Write;
 
